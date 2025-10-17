@@ -1,5 +1,4 @@
-# **AWS Critical Thinking Project**
-## **Cloud Storage Solutions and Amazon S3**
+# **Cloud Storage Solutions and Amazon S3**
 
 ---
 
