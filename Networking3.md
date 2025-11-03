@@ -1,153 +1,128 @@
-# Configuring a Secure AWS Environment to Meet Vendor A’s Security Requirements
 
+# AWS Critical Thinking Projects — Hands-on Lab Report
 
-The goal of this project is to design a secure and compliant network architecture that enables Kubernetes services hosted in a private AWS subnet to communicate with Vendor A’s systems. Vendor A requires that all communication occurs over a **site-to-site VPN connection** and that **all outbound requests originate from a single, specific private IP address**.
-
-This solution describes how to configure the environment to meet these security and connectivity requirements effectively.
 
 ---
 
-## **1. Network Infrastructure Design**
+##  Executive summary
 
-A dedicated **Virtual Private Cloud (VPC)** should be set up to host the Kubernetes cluster and supporting network components.
-
-### **Key Steps:**
-
-1. **Create a VPC**
-   - Define a CIDR block, for example, `10.0.0.0/16`.
-   - Ensure sufficient IP range for future scaling.
-
-2. **Create Subnets**
-   - **Public Subnets**: For resources that require limited internet or external access (e.g., NAT instance, VPN gateway).
-   - **Private Subnets**: For internal resources such as Kubernetes worker nodes and services.
-
-3. **Configure Route Tables**
-   - Public route table routes traffic to the **Internet Gateway (IGW)**.
-   - Private route table routes outbound traffic via a **NAT instance** for controlled egress.
-
-4. **Deploy Security Groups and Network ACLs**
-   - Restrict access based on least privilege.
-   - Allow necessary traffic only between trusted networks.
+I designed and implemented an AWS lab environment to demonstrate how a private application can reach Vendor A over a secure AWS Site‑to‑Site VPN and appear to originate from a single, pre‑approved private IP. I built the VPC, public and private subnets, launched EC2 instances to act as NAT / bastion and application servers, attached an Internet Gateway, created route tables, and created the AWS side of the VPN (Customer Gateway, Virtual Private Gateway, VPN Connection). I configured a NAT EC2 to perform IP forwarding and SNAT so all egress from the private subnet uses one private IP.
 
 ---
 
-## **2. Kubernetes Cluster Deployment**
+## Step‑by‑step actions I performed
 
-A **Kubernetes cluster** should be deployed within the private subnets to ensure that no public exposure occurs.
+> I include the exact console actions and terminal commands I ran. 
 
-### **Configuration Guidelines:**
-- Use **Amazon EKS** or a self-managed cluster on EC2 instances.
-- Deploy an **NGINX Ingress Controller** to manage internal traffic flow.
-- Configure cluster networking with **Amazon VPC CNI Plugin** for direct pod-level networking within the VPC.
+### Step 1 — VPC and Subnets
+- In the AWS Console I created `vendor-a-vpc` (CIDR `10.0.0.0/16`).
+- I created two subnets:
+  - `public-subnet` (Availability Zone eu-west-1a, e.g. `10.0.1.0/24`)
+  - `private-subnet` (Availability Zone eu-west-1b, e.g. `10.0.2.0/24`)
 
-This setup ensures that workloads operate securely and privately while maintaining flexibility in traffic management.
+### I added Screenshots
+![alt text](images/vendor-vpc.png)
+![alt text](images/subnets.png)
 
----
-
-## **3. Site-to-Site VPN Configuration**
-
-A **site-to-site VPN connection** ensures encrypted communication between the AWS VPC and Vendor A’s network.
-
-### **Configuration Steps:**
-
-1. **Create a Customer Gateway (CGW)**
-   - Use Vendor A’s public IP and ASN details.
-
-2. **Create a Virtual Private Gateway (VGW)**
-   - Attach the VGW to the AWS VPC.
-
-3. **Establish VPN Connection**
-   - Configure the tunnel with shared keys or certificates.
-   - Use **static** or **dynamic routing (BGP)** based on Vendor A’s preference.
-
-4. **Update Route Tables**
-   - Add routes in private subnets pointing Vendor A’s network (e.g., `172.16.0.0/16`) to the VPN connection.
-
-This setup encrypts data in transit and establishes a direct, secure communication link between both environments.
 
 ---
 
-## **4. NAT Instance for Outbound Traffic Control**
+### Step 2 — Internet Gateway and Route Tables
+- I created and attached an Internet Gateway (`vendor-igw`) to the VPC.
+- I created `public-rt` and added route `0.0.0.0/0 → vendor-igw`. I associated `public-subnet` with `public-rt`.
+- I created `private-rt` and associated it with `private-subnet` (initially no NAT target until I created the NAT instance).
 
-To satisfy the single private IP whitelisting requirement, a **custom NAT instance** should be deployed.
-
-### **Setup Steps:**
-
-1. **Launch an EC2 Instance**
-   - Use Amazon Linux 2 AMI.
-   - Place the instance in a public subnet.
-   - Assign a **static private IP** (e.g., `10.0.1.10`) for Vendor A to whitelist.
-
-2. **Modify Instance Attributes**
-   - Disable **Source/Destination Check**.
-   - Enable **IP forwarding** in the instance configuration.
-
-3. **Configure iptables for SNAT**
-   ```bash
-   sudo sysctl -w net.ipv4.ip_forward=1
-   sudo iptables -t nat -A POSTROUTING -o eth0 -j SNAT --to-source 10.0.1.10
-   ```
-
-4. **Ensure High Availability**
-   - Use an Auto Scaling Group or Launch Template to replace failed NAT instances.
-   - Optionally use **AWS Transit Gateway** for scalable multi-VPC routing.
-
-This configuration ensures all outbound traffic appears from the single private IP approved by Vendor A.
+### I added Screenshots
+![alt text](images/IGW.png)
+![alt text](images/privatert.png)
+![alt text](images/routetables.png)
+![alt text](images/routetables2.png)
+![alt text](images/attachedIGW.png)
 
 ---
 
-## **5. Routing Configuration**
+### Step 3 — Launch NAT EC2 (Bastion) in public-subnet
+- AMI: Amazon Linux 2023 (t2.micro to avoid vCPU limit errors)
+- Key pair used: `vendor.pem` (local path I used: `C:/Users/PC/Documents/AWS/vendor.pem`)
+- Network: VPC `vendor-a-vpc`, Subnet `public-subnet`
+- I assigned a fixed private IP (example `10.0.1.203`) and auto‑assign public IPv4 (public = `3.253.51.44`).
+- Security group: allowed SSH from my IP and outbound all.
 
-The route tables must direct Kubernetes traffic correctly through the NAT instance and VPN connection.
+---
 
-### **Routing Design:**
-- Private subnet routes → NAT instance → VPN Gateway → Vendor A’s network.
-- Ensure no conflicting routes exist that bypass the VPN.
+### Step 4 — Configure NAT instance (IP forwarding + SNAT)
+Inside the NAT instance I ran:
 
-Example route table entry:
-```
-Destination: 172.16.0.0/16
-Target: nat-instance-id
+```bash
+# enable IP forwarding now
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# persist it
+echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+# install iptables if needed (Amazon Linux 2023 may require dnf/yum)
+sudo dnf install -y iptables || sudo yum install -y iptables
+
+# SNAT: make outgoing packets use the NAT instance private IP
+sudo iptables -t nat -A POSTROUTING -o ens5 -j SNAT --to-source 10.0.1.203
+
+# verify rule
+sudo iptables -t nat -L -n -v
 ```
 
 ---
 
-## **6. Connectivity Testing and Verification**
+### I added Screenshots
+![alt text](images/sshnat.png)
 
-Once the setup is complete, connectivity testing validates compliance and functionality.
-
-### **Testing Steps:**
-1. Deploy a test pod in the Kubernetes cluster.
-2. Attempt to access Vendor A’s internal endpoint.
-3. Ask Vendor A to verify that all requests appear from the whitelisted private IP.
-4. Use `traceroute` or `curl` commands inside the pod for path verification.
-
-Successful testing confirms that both VPN and NAT configurations function correctly.
 
 ---
 
-## **7. Security and Monitoring Enhancements**
 
-To ensure long-term security and observability:
+### Step 5 — Update private route table to use NAT instance
+- In the VPC console I edited the `private-rt` to add:
+  - Destination: `0.0.0.0/0`
+  - Target: NAT instance (example: `i-0abcdef...`)
 
-- Enable **VPC Flow Logs** and send them to **CloudWatch** or **S3** for monitoring traffic.
-- Apply strict **IAM roles and policies** to restrict access to VPN and NAT configurations.
-- Regularly rotate VPN credentials and review routing rules.
-- Use **AWS Config** and **GuardDuty** for continuous compliance monitoring.
+This routed private subnet egress through the NAT instance.
 
----
 
-## **8. Expected Outcome**
-
-By implementing the described configuration:
-
-- All traffic between AWS and Vendor A travels over a secure VPN tunnel.
-- Vendor A receives traffic from a single, consistent private IP address.
-- The architecture maintains confidentiality, integrity, and security of all transmitted data.
 
 ---
 
-## **Conclusion**
+### Step 6 — Verify NAT forwarding works (connectivity test)
+From a private instance I tested outbound connectivity. Example test run:
+```bash
+# from private app instance
+ping -c 5 8.8.8.8
+# observed continuous replies (sample lines from lab):
+# 64 bytes from 8.8.8.8: icmp_seq=1539 ttl=117 time=1.40 ms
+```
 
-The proposed architecture enables a secure, scalable, and compliant network connection between AWS-hosted Kubernetes services and Vendor A’s environment.  
-It meets both **VPN encryption** and **private IP whitelisting** requirements while maintaining best practices in cloud networking, routing, and access control.
+This confirmed that outbound traffic flows through the NAT instance.
+
+---
+
+### Step 8 — Create AWS Site‑to‑Site VPN (AWS side)
+I created in the VPC console:
+- Customer Gateway (`cgw-01bbe6728e73781bb`) — used placeholder public IP `1.2.3.4` for the lab.
+- Virtual Private Gateway (`vgw-010b60c7df67207ad`) and attached it to the VPC.
+- VPN Connection `vpn-059785470647a8036` (AWS generated two tunnels).
+
+I downloaded the VPN configuration file (AWS produced a vendor-specific config). The config included:
+- Tunnel outside IPs: `34.253.5.41` and `52.30.208.243`
+- Inside address ranges: `169.254.62.112/30` and `169.254.239.236/30`
+- AWS‑side config instructions and pre-shared keys (PSKs).
+
+---
+
+
+
+
+
+
+
+
+
+
