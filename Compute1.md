@@ -87,6 +87,7 @@ def lambda_handler(event, context):
 ![alt text](images4/lambdacreate.png)
 ![alt text](images4/deploy.png)
 ![alt text](images4/test.png)
+![alt text](images4/computeweb.png)
 
 
 ## 🌱 Step 5: Deploy an Application Using AWS Elastic Beanstalk
