@@ -1,4 +1,4 @@
-# 🧠 AWS Compute Hands-On Project
+#  AWS Compute Hands-On Project
 
 
 **Objective:**  
@@ -23,7 +23,7 @@ In this project, I explored various AWS compute services to deploy and manage cl
 ![alt text](images4/computeinstance.png)
 
 
-## 💻 Step 2: Connect to the EC2 Instance
+##  Step 2: Connect to the EC2 Instance
 
 Once the instance was running, I connected to it using SSH from my terminal:
 
