@@ -20,6 +20,8 @@ I deployed the static website using **AWS Lambda** through a Node.js-based handl
 ### I added Screenshots
 ![alt text](images4/lambdawebcreate.png)
 ![alt text](images4/lamndaweb.png)
+![alt text](images4/codedeploy.png)
+![alt text](images4/trigger.png)
 
 
 ### 3. Deploying on AWS Elastic Beanstalk
